@@ -86,6 +86,10 @@ THEME_STORE = {
         const messageWidth = localStorage.getItem('messageMaxWidth') || 70;
         root.style.setProperty('--message-max-width', `${messageWidth}%`);
 
+        // apply edit box max height (dvh; falls back to no cap on old browsers)
+        const editBoxMaxHeight = localStorage.getItem('editBoxMaxHeight') || 20;
+        root.style.setProperty('--edit-textarea-max-height', `${editBoxMaxHeight}dvh`);
+
         // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-16)
         // streamed-token fade duration: keep the CSS animation duration in
         // sync with the user setting (the JS timeline reads the same keys)

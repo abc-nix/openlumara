@@ -26,6 +26,7 @@ function settingsModal() {
         fontSize: localStorage.getItem('fontSize') || '16',
         chatWidth: localStorage.getItem('chatContentWidth') || '100',
         messageWidth: localStorage.getItem('messageMaxWidth') || '60',
+        editBoxMaxHeight: localStorage.getItem('editBoxMaxHeight') || '20',
         expandReasoning: localStorage.getItem('expandReasoning') || false,
 
         // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-16)
@@ -302,6 +303,13 @@ function settingsModal() {
             this.messageWidth = width;
             localStorage.setItem('messageMaxWidth', width);
             document.documentElement.style.setProperty('--message-max-width', `${width}%`);
+        },
+
+        // Alpine-reactive edit box max height change
+        handleEditBoxMaxHeight(height) {
+            this.editBoxMaxHeight = height;
+            localStorage.setItem('editBoxMaxHeight', height);
+            document.documentElement.style.setProperty('--edit-textarea-max-height', `${height}dvh`);
         },
         
         // Alpine-reactive theme family selection

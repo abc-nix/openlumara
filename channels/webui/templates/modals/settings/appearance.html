@@ -118,6 +118,20 @@
                        @input="handleChatWidth($event.target.value)">
             </div>
 
+            <!-- Edit Box Max Height Slider -->
+            <div class="setting-item">
+                <div class="slider-header">
+                    <span class="slider-label">Edit Box Max Height</span>
+                    <span class="slider-value" x-text="editBoxMaxHeight + 'vh'"></span>
+                </div>
+                <input type="range" 
+                       x-model.number="editBoxMaxHeight" 
+                       min="10" 
+                       max="80"
+                       step="5"
+                       @input="handleEditBoxMaxHeight($event.target.value)">
+            </div>
+
             <h4>Preferences</h4>
 
             <div class="item">
