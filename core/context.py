@@ -99,9 +99,18 @@ class Context:
             if len(messages) > max_messages:
                 messages = messages[-max_messages:]
 
-            # Strip multimodal data from all messages except the last one to save tokens
-            if messages:
+            # Strip multimodal data from OLD turns to save tokens
+            if messages and not core.config.get("model", "preserve_multimodal_context"):
+                # keep multimodal from the last user message onward (current turn + tool loop)
+                last_user_idx = -1
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "user":
+                        last_user_idx = i
+                        break
+
                 for i in range(len(messages) - 1):
+                    if last_user_idx >= 0 and i >= last_user_idx:
+                        continue
                     msg = messages[i]
                     if msg.get("role") in ("tool", "tool_calls"):
                         # Don't mess with tool calls
