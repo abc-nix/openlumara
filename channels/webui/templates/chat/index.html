@@ -71,7 +71,8 @@
             <template x-if="rendered">
                 <div>
             <!-- user turn (always one message) -->
-            <template x-if="turn.role === 'user'">
+            <!-- tool_attachment turns carry images from tool results; they are internal and hidden from the UI -->
+            <template x-if="turn.role === 'user' && !turn.messages[0]?._metadata?.tool_attachment">
                 <div class="message-wrapper user" x-data="{ get message() { return turn.messages[0] } }">
                     <div class="message user">
                         {% include 'chat/turns/user.html' %}

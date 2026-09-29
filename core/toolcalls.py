@@ -4,6 +4,43 @@ import json_repair
 import asyncio
 import copy
 
+
+def extract_image_payload(func_response):
+    """Extract an MCP-style image payload from a tool result, or None.
+
+    The screenshot tool returns the image as a top-level sibling of the result
+    dict: {"status": ..., "content": {metadata}, "image": {"data": <b64>, "mimeType": ...}}.
+    Older shape had it nested inside content; both are detected here.
+    """
+    if isinstance(func_response, dict):
+        image = func_response.get("image")
+        if isinstance(image, dict) and image.get("data") and image.get("mimeType"):
+            return image
+        content = func_response.get("content")
+        if isinstance(content, dict):
+            image = content.get("image")
+            if isinstance(image, dict) and image.get("data") and image.get("mimeType"):
+                return image
+    return None
+
+
+def build_tool_attachment(tool_call_id, image):
+    """Build the internal user message that carries a tool result image.
+
+    Tool messages are text-only per the API spec, so images from tool results
+    are delivered via a following user message (Cherry Studio pattern):
+    assistant(tool_calls) -> tool -> user(text placeholder + image_url) -> assistant.
+    """
+    return {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": f"[tool-result attachment call_id={tool_call_id} image=1]"},
+            {"type": "image_url", "image_url": {"url": f"data:{image['mimeType']};base64,{image['data']}"}},
+        ],
+        "_metadata": {"tool_attachment": True},
+    }
+
+
 class ToolcallManager:
     def __init__(self, channel):
         self.channel = channel
@@ -248,11 +285,31 @@ class ToolcallManager:
 
                 self.channel.log("toolcall", func_response.get("content"))
 
+            # Tool messages are text-only: extract any image payload BEFORE
+            # serializing and strip it from the tool result so the base64 never
+            # enters the API payload as text (it would blow up the context).
+            # The image is delivered separately via the attachment below.
+            image = extract_image_payload(func_response)
+
             func_response_str = None
             if isinstance(func_response, str):
                 func_response_str = func_response
             else:
-                func_response_str = json.dumps(func_response)
+                tool_result = func_response
+                if isinstance(func_response, dict):
+                    # drop the top-level image key (screenshot tool)
+                    tool_result = {k: v for k, v in func_response.items() if k != "image"}
+                    # drop/annotate any image nested inside content (legacy shape)
+                    content = tool_result.get("content")
+                    if isinstance(content, dict) and isinstance(content.get("image"), dict):
+                        tool_result = dict(tool_result)
+                        tool_result["content"] = dict(content)
+                        img = content["image"]
+                        tool_result["content"]["image"] = (
+                            f"[tool-result attachment call_id={tool_call_dict['id']} image=1] "
+                            f"({img.get('mimeType', 'image/png')}): attached in the following user message"
+                        )
+                func_response_str = json.dumps(tool_result)
 
             tool_response = {
                 "role": "tool",
@@ -262,6 +319,12 @@ class ToolcallManager:
 
             yield {"type": "tool", "tool_call_id": tool_call_dict['id'], "content": func_response_str}
             await self.channel.context.chat.messages.add(tool_response)
+
+            # If the tool result carried an image, deliver it to the model via
+            # an internal user attachment message (tool msgs are text-only).
+            if image:
+                attachment = build_tool_attachment(tool_call_dict['id'], image)
+                await self.channel.context.chat.messages.add(attachment)
 
         if self.channel.manager.API.cancel_request:
             await self.channel.push("toolcalling chain cancelled")

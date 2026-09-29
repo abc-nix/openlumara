@@ -148,7 +148,7 @@ class Messages:
 
         if len(self.data) == 1:
             # just return 0 if there is only one message... but only if the role matches the request
-            if self.data[0].get("role") == role:
+            if self.data[0].get("role") == role and not self.data[0].get("_metadata", {}).get("tool_attachment"):
                 return 0
             return -1
 
@@ -159,7 +159,9 @@ class Messages:
             start_index = len(self.data) - 1
 
         for index in range(start_index, -1, -1):
-            if self.data[index].get("role") == role:
+            # skip internal tool attachments (images from tool results) so
+            # regeneration targets the real user message, not the attachment
+            if self.data[index].get("role") == role and not self.data[index].get("_metadata", {}).get("tool_attachment"):
                 return index
 
         return -1

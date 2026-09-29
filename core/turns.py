@@ -1,4 +1,5 @@
 import asyncio
+import copy
 
 class TurnCollector:
     """
@@ -69,8 +70,13 @@ class TurnCollector:
                 if msg.get("role") == 'tool':
                     response_map[msg["tool_call_id"]] = msg.get("content")
 
-            for msg in turn["messages"]:
+            # merge responses on a copy so the stored messages are never mutated
+            # with display-only data (would leak into the API payload otherwise)
+            for i, msg in enumerate(turn["messages"]):
                 if msg.get("tool_calls"):
+                    if any(tool.get("id") in response_map for tool in msg["tool_calls"]):
+                        msg = copy.deepcopy(msg)
+                        turn["messages"][i] = msg
                     for tool in msg["tool_calls"]:
                         if tool.get("id") in response_map:
                             tool["response"] = response_map[tool["id"]]

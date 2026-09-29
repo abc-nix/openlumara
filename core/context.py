@@ -104,7 +104,7 @@ class Context:
                 # keep multimodal from the last user message onward (current turn + tool loop)
                 last_user_idx = -1
                 for i in range(len(messages) - 1, -1, -1):
-                    if messages[i].get("role") == "user":
+                    if messages[i].get("role") == "user" and not messages[i].get("_metadata", {}).get("tool_attachment"):
                         last_user_idx = i
                         break
 
@@ -152,6 +152,13 @@ class Context:
                     if content and isinstance(content, str):
                         message["content"] += f"\n\n{metadata['injection']}"
 
+        # capture tool attachment positions BEFORE metadata is stripped below,
+        # since the enforcement loop needs to skip them (metadata is gone by then)
+        attachment_indices = {
+            i for i, msg in enumerate(messages)
+            if msg.get("_metadata", {}).get("tool_attachment")
+        }
+
         # remove any non-standard (metadata) fields from the messages
         # so that we can cleanly send it to the API
         # we cant just remove only the _metadata field because old chat history used to use metadata fields
@@ -160,13 +167,29 @@ class Context:
         approved_keys = ["role", "content", "reasoning_content", "tool_calls", "tool_call_id", "function_call", "tool"]
         messages = [{k: v for k, v in msg.items() if k in approved_keys} for msg in messages]
 
+        # strip display-only fields from tool_calls (e.g. "response" merged by the
+        # turn collector) so they never leak into the API payload
+        for msg in messages:
+            tool_calls = msg.get("tool_calls")
+            if isinstance(tool_calls, list):
+                for tool_call in tool_calls:
+                    if isinstance(tool_call, dict):
+                        tool_call.pop("response", None)
+                        tool_call.pop("index", None)
+
         # enforce correct turn order
         # system -> user -> assistant -> user -> assistant -> ...
         # assistant -> tool -> assistant is VALID (tool use flow)
         # assistant -> assistant is INVALID (needs spacer)
         if messages:
             enforced_messages = []
-            for msg in messages:
+            for idx, msg in enumerate(messages):
+                # internal tool attachments (images from tool results) are invisible
+                # to turn-order enforcement: no spacers around them
+                if idx in attachment_indices:
+                    enforced_messages.append(msg)
+                    continue
+
                 if enforced_messages:
                     last_role = enforced_messages[-1].get("role")
                     current_role = msg.get("role")
@@ -330,7 +353,7 @@ Hard rules:
         active_request = None
         for msg in reversed(await self.chat.messages.get()):
             meta = msg.get("_metadata", {})
-            if msg.get("role") == "user" and not meta.get("is_cmd") and not meta.get("signal") and not meta.get("ghost"):
+            if msg.get("role") == "user" and not meta.get("is_cmd") and not meta.get("signal") and not meta.get("ghost") and not meta.get("tool_attachment"):
                 active_request = self.channel._extract_content(msg)
                 break
 

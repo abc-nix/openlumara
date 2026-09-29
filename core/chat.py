@@ -346,6 +346,9 @@ class Chat:
             # extract content
             items = []
             for message in turn.get("messages"):
+                # skip internal tool attachments (images from tool results) in exports
+                if message.get("_metadata", {}).get("tool_attachment"):
+                    continue
                 role = message.get("role")
                 content = message.get("content")
                 toolcalls = message.get("tool_calls")
@@ -449,6 +452,9 @@ class Chat:
             # Search through messages
             found_messages = []
             for msg_index, message in enumerate(messages):
+                # skip internal tool attachments (images from tool results) in searches
+                if message.get("_metadata", {}).get("tool_attachment"):
+                    continue
                 content = message.get("content", "")
                 if not content:
                     continue
