@@ -59,6 +59,18 @@ function mergeTurnHistory(existing, incoming) {
     return merged;
 }
 
+// -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+// safe read of the persisted tag filter: corrupt localStorage must not
+// break the whole store at init time.
+function parseStoredTags() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('sidebarTagFilter') || '[]');
+        return Array.isArray(parsed) ? parsed.filter(t => typeof t === 'string') : [];
+    } catch (err) {
+        return [];
+    }
+}
+
 CHAT_STORE = {
     /*
      * alpine.js store for chat state
@@ -91,6 +103,47 @@ CHAT_STORE = {
 
     user_input: '',
     last_user_input: '',
+
+    // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+    // shell-style input history (global across chats), persisted to localStorage
+    inputHistory: JSON.parse(localStorage.getItem('input_history') || '[]'),
+    historyIndex: -1,
+    draftValue: '',
+
+    pushInputHistory(msg) {
+        msg = (msg || '').trim();
+        if (!msg) return;
+        if (this.inputHistory[this.inputHistory.length - 1] !== msg) {
+            this.inputHistory.push(msg);
+            if (this.inputHistory.length > 100) this.inputHistory.shift();
+            localStorage.setItem('input_history', JSON.stringify(this.inputHistory));
+        }
+        this.historyIndex = -1;
+        this.draftValue = '';
+    },
+
+    historyPrev() {
+        if (!this.inputHistory.length) return;
+        if (this.historyIndex === -1) {
+            this.draftValue = this.user_input;
+            this.historyIndex = this.inputHistory.length - 1;
+        } else if (this.historyIndex > 0) {
+            this.historyIndex--;
+        }
+        this.user_input = this.inputHistory[this.historyIndex];
+    },
+
+    historyNext() {
+        if (this.historyIndex === -1) return;
+        if (this.historyIndex < this.inputHistory.length - 1) {
+            this.historyIndex++;
+            this.user_input = this.inputHistory[this.historyIndex];
+        } else {
+            this.historyIndex = -1;
+            this.user_input = this.draftValue;
+            this.draftValue = '';
+        }
+    },
 
     currentTokenUsage: 0,
 
@@ -167,6 +220,69 @@ CHAT_STORE = {
     searchInContent: localStorage.getItem('sidebarSearchInContent') === 'true',
 
     get searching() { return Boolean(this.searchQuery.trim()); },
+
+    /* ----------------------
+     * tag filter (sidebar)
+     * ----------------------- */
+    /* -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+       multi-select tag filter, toggled by the tag button next to the
+       search field; the panel lives above the chat list. AND semantics:
+       a chat must carry every selected tag. selection is persisted;
+       availableTags is scoped to the selected category and refreshed
+       with every list reload. */
+    selectedTags: parseStoredTags(),
+    availableTags: [],
+
+    tagParam() {
+        return this.selectedTags.map(t => `&tags=${encodeURIComponent(t)}`).join('');
+    },
+
+    async loadTags() {
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // never let a failed tag fetch break the chat list: on error we
+        // simply keep the previously known tags.
+        // catParam() yields '&category=..' (meant for URLs that already
+        // have a '?'): start the query string here, otherwise the param
+        // becomes part of the path itself and the request 404s.
+        const qs = this.catParam();
+        const url = `/api/chats/tags${qs ? `?${qs.slice(1)}` : ''}`;
+
+        let tags = null;
+        try {
+            tags = await simpleApiFetch(url);
+        } catch (err) {
+            console.warn('loading chat tags failed:', err);
+            return;
+        }
+
+        this.availableTags = tags ?? [];
+
+        // prune selections whose tag no longer exists in this category
+        // (chat deleted, tag removed, or category switched) - silently,
+        // no reload: the list refresh that follows picks it up anyway.
+        const pruned = this.selectedTags.filter(t => this.availableTags.includes(t));
+        if (pruned.length !== this.selectedTags.length) {
+            this.selectedTags = pruned;
+            localStorage.setItem('sidebarTagFilter', JSON.stringify(pruned));
+        }
+    },
+
+    async toggleTag(tag) {
+        if (this.selectedTags.includes(tag)) {
+            this.selectedTags = this.selectedTags.filter(t => t !== tag);
+        } else {
+            this.selectedTags = [...this.selectedTags, tag];
+        }
+        localStorage.setItem('sidebarTagFilter', JSON.stringify(this.selectedTags));
+        await this.reloadChats();
+    },
+
+    async clearTags() {
+        if (this.selectedTags.length === 0) { return; }
+        this.selectedTags = [];
+        localStorage.setItem('sidebarTagFilter', '[]');
+        await this.reloadChats();
+    },
 
     /* ----------------------
      * day groups (sidebar)
@@ -278,7 +394,11 @@ CHAT_STORE = {
     async reloadDayGroups() {
         const gen = ++this.dayFetchGen;
 
-        const groupList = await simpleApiFetch(`/api/chats/days?tz_offset=${this.tzOffset()}${this.catParam()}`);
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // tagParam() narrows day counts to the active tag filter
+        const groupList = await simpleApiFetch(
+            `/api/chats/days?tz_offset=${this.tzOffset()}${this.catParam()}${this.tagParam()}`
+        );
 
         // stale: a newer reload superseded this one
         if (gen !== this.dayFetchGen) { return; }
@@ -321,7 +441,7 @@ CHAT_STORE = {
 
         const result = await simpleApiFetch(
             `/api/chats/day?day=${group.key}&offset=${group.offset}` +
-            `&limit=${this.chatLimit}&tz_offset=${this.tzOffset()}${this.catParam()}`
+            `&limit=${this.chatLimit}&tz_offset=${this.tzOffset()}${this.catParam()}${this.tagParam()}`
         );
 
         group.loading = false;
@@ -388,7 +508,9 @@ CHAT_STORE = {
 
     async _runChatSearch(q) {
         this.searchLoading = true;
-        const results = await this.searchGlobal(q, this.searchInContent, this.selectedCategory);
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // search respects the active tag filter
+        const results = await this.searchGlobal(q, this.searchInContent, this.selectedCategory, this.selectedTags);
 
         // stale: query changed or was cleared while the request was in flight
         if (this.searchQuery.trim() !== q) { return; }
@@ -402,6 +524,10 @@ CHAT_STORE = {
     // (which re-fetches the chats of every expanded group). collapsed
     // groups cost one cheap day-list request, nothing else.
     async reloadChats() {
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // refresh the tag list alongside the chats (cheap): keeps the
+        // filter panel in sync with deletes/retags/category switches.
+        await this.loadTags();
         await this.reloadDayGroups();
 
         // refresh search results alongside, so renames/deletes (which
@@ -628,6 +754,10 @@ CHAT_STORE = {
             return;
         }
 
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // record the sent text in the input history before clearing the box
+        this.pushInputHistory(text);
+
         Alpine.store("stream").state = "message_sending";
         await this.clearInput();
 
@@ -658,6 +788,15 @@ CHAT_STORE = {
             content: text,
             files: files
         });
+
+        // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-26)
+        // if the message never made it onto the socket, restore the draft
+        // (and keep any attached files) so the user can retry
+        if (success === false) {
+            this.user_input = text;
+            Alpine.store("stream").state = "idle";
+            return;
+        }
 
         uploadStore.clear();
     },
@@ -764,12 +903,13 @@ CHAT_STORE = {
     /* ----------------------
      * global search
      * ----------------------- */
-    async searchGlobal(query, searchInContent = true, category = null) {
+    async searchGlobal(query, searchInContent = true, category = null, tags = []) {
         try {
             const result = await simpleApiPost('/api/chats/search', {
                 query: query,
                 search_in_content: searchInContent,
-                category: category
+                category: category,
+                tags: tags
             });
             
             // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-17)
