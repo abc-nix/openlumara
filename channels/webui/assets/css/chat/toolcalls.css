@@ -372,3 +372,13 @@
     color: var(--accent);
     margin-left: 4px;
 }
+
+/* tool result image miniature (e.g. screenshot): shown under the call header */
+.tool-result-image {
+    margin: 4px 8px 8px 24px;
+    max-width: 220px;
+
+    img {
+        max-height: 160px;
+    }
+}

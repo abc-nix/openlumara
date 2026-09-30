@@ -22,13 +22,39 @@ class TurnCollector:
         """
         turns = []
         current_assistant_turn = None
+        last_tool_call_id = None
+        attachment_map = {}  # tool_call_id -> image url (display-only)
 
         for index, msg in enumerate(history):
             role = msg.get('role')
 
             # add the index to the message so that it can be directly targeted no matter which turn it is in
             msg["index"] = index
-            
+
+            # internal tool attachments (images from tool results) are invisible to
+            # turn grouping: they must not split an assistant turn, but their image
+            # is merged into the matching tool call below for display
+            if msg.get("_metadata", {}).get("tool_attachment"):
+                content = msg.get("content")
+                image_url = None
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "image_url":
+                            image_url = part.get("image_url", {}).get("url")
+                            break
+                if image_url:
+                    call_id = last_tool_call_id
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part.get("text", "")
+                                if "call_id=" in text:
+                                    call_id = text.partition("call_id=")[2].split()[0]
+                                break
+                    if call_id:
+                        attachment_map[call_id] = image_url
+                continue
+
             if role == 'user':
                 if current_assistant_turn:
                     # if a user message arrives and it's currently still
@@ -54,7 +80,10 @@ class TurnCollector:
                 # update the last message index.. since this is a for loop,
                 # by the time we reach the last message, this will be set to the last message index
                 current_assistant_turn["last_message_index"] = index
-                    
+
+                if role == 'tool':
+                    last_tool_call_id = msg.get("tool_call_id")
+
                 current_assistant_turn["messages"].append(msg)
 
         if current_assistant_turn:
@@ -74,12 +103,14 @@ class TurnCollector:
             # with display-only data (would leak into the API payload otherwise)
             for i, msg in enumerate(turn["messages"]):
                 if msg.get("tool_calls"):
-                    if any(tool.get("id") in response_map for tool in msg["tool_calls"]):
+                    if any(tool.get("id") in response_map or tool.get("id") in attachment_map for tool in msg["tool_calls"]):
                         msg = copy.deepcopy(msg)
                         turn["messages"][i] = msg
                     for tool in msg["tool_calls"]:
                         if tool.get("id") in response_map:
                             tool["response"] = response_map[tool["id"]]
+                        if tool.get("id") in attachment_map:
+                            tool["attachment_image"] = attachment_map[tool["id"]]
 
         return turns
 
@@ -125,6 +156,7 @@ class TurnCollector:
         current_segment = None
         last_segment_type = None
         stream_response_map = {}
+        stream_attachment_map = {}  # tool_call_id -> image url (display-only)
         last_tool_call_id = None
         last_tool_calls_segment = None
 
@@ -225,6 +257,8 @@ class TurnCollector:
             # so we maintain a response map that accumulates tool response content by tool_call_id
             if token.get("type") == 'tool':
                 stream_response_map[token["tool_call_id"]] = token.get("content", '')
+                if token.get("attachment_image"):
+                    stream_attachment_map[token["tool_call_id"]] = token["attachment_image"]
 
             # ----
             # yield logic:
@@ -239,11 +273,15 @@ class TurnCollector:
                     for tool in current_segment["tool_calls"]:
                         if tool.get("id") in stream_response_map:
                             tool["response"] = stream_response_map[tool["id"]]
+                        if tool.get("id") in stream_attachment_map:
+                            tool["attachment_image"] = stream_attachment_map[tool["id"]]
                 yield {"type": "turn", "content": current_segment}
             elif last_tool_calls_segment:
                 # tool response segment: update and re-yield the tool_calls segment instead
                 for tool in last_tool_calls_segment["tool_calls"]:
                     if tool.get("id") in stream_response_map:
                         tool["response"] = stream_response_map[tool["id"]]
+                    if tool.get("id") in stream_attachment_map:
+                        tool["attachment_image"] = stream_attachment_map[tool["id"]]
                 yield {"type": "turn", "content": last_tool_calls_segment}
 

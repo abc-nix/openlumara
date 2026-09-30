@@ -317,7 +317,12 @@ class ToolcallManager:
                 "content": func_response_str
             }
 
-            yield {"type": "tool", "tool_call_id": tool_call_dict['id'], "content": func_response_str}
+            tool_token = {"type": "tool", "tool_call_id": tool_call_dict['id'], "content": func_response_str}
+            # carry the image (if any) for display purposes only; it is stripped
+            # from the API payload by context.py (display-only tool_call fields)
+            if image:
+                tool_token["attachment_image"] = f"data:{image['mimeType']};base64,{image['data']}"
+            yield tool_token
             await self.channel.context.chat.messages.add(tool_response)
 
             # If the tool result carried an image, deliver it to the model via

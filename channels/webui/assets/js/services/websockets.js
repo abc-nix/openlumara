@@ -131,9 +131,20 @@ async function handleWebSocketMessage(data) {
             const last_idx = stream.turn.messages.length - 1;
             const last_segment = stream.turn.messages[last_idx];
 
-            // same type and same tool_call_id = update existing segment
+            // same type and same tool_call_id = update existing segment.
+            // tool_calls segments carry no tool_call_id (only tool responses
+            // do), so compare the tool call ids: a NEW tool call (after a
+            // previous one completed) must start a new segment instead of
+            // overwriting the previous one.
+            const sameToolCallIds = (a, b) => {
+                const aIds = (a.tool_calls || []).map(t => t.id).filter(Boolean);
+                const bIds = (b.tool_calls || []).map(t => t.id).filter(Boolean);
+                if (aIds.length === 0 || bIds.length === 0) return true; // no ids yet: continuation
+                return aIds.length === bIds.length && aIds.every((id, i) => id === bIds[i]);
+            };
             const is_update = last_segment &&
                               last_segment.type === segment.type &&
+                              (segment.type !== 'tool_calls' || sameToolCallIds(last_segment, segment)) &&
                               last_segment.tool_call_id === segment.tool_call_id;
 
             if (is_update) {

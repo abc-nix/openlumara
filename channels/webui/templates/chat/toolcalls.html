@@ -51,6 +51,13 @@
                          view (tool_displays.html) replaces the default
                          args+response rows entirely. -->
                     <div x-show="!collapsed" x-collapse.duration.250>
+                    <!-- tool result image (e.g. screenshot): miniature under the call,
+                         collapses together with the tool contents -->
+                    <template x-if="tool.attachment_image">
+                        <div class="tool-result-image media-preview image-preview">
+                            <img :src="tool.attachment_image" alt="tool result image" loading="lazy" />
+                        </div>
+                    </template>
                     <div class="body" x-data="{ cacheKey: tool.id ?? (message.tool_call_id + ':' + toolIdx) }">
                         <!-- -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-17)
                              claimed tool calls render from inline markup views

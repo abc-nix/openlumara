@@ -40,6 +40,7 @@ function turnsEqual(a, b) {
         for (let j = 0; j < xc.length; j++) {
             if (xc[j].id !== yc[j].id) return false;
             if (xc[j].response !== yc[j].response) return false;
+            if (xc[j].attachment_image !== yc[j].attachment_image) return false;
         }
     }
 

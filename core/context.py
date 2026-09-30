@@ -169,7 +169,8 @@ class Context:
         messages = [{k: v for k, v in msg.items() if k in approved_keys} for msg in messages]
 
         # strip display-only fields from tool_calls (e.g. "response" merged by the
-        # turn collector) so they never leak into the API payload
+        # turn collector, "attachment_image" merged for the webui) so they never
+        # leak into the API payload
         for msg in messages:
             tool_calls = msg.get("tool_calls")
             if isinstance(tool_calls, list):
@@ -177,6 +178,7 @@ class Context:
                     if isinstance(tool_call, dict):
                         tool_call.pop("response", None)
                         tool_call.pop("index", None)
+                        tool_call.pop("attachment_image", None)
 
         # enforce correct turn order
         # system -> user -> assistant -> user -> assistant -> ...
