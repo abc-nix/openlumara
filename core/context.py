@@ -87,13 +87,14 @@ class Context:
                 # TODO: i really need to make a more user friendly UI for core settings, that matches the UX of module/channel settings...
                 # that name is ridiculous
 
-                # strip reasoning from tool calls prior to the current agentic loop
+                # strip reasoning from messages prior to the current agentic loop
                 loop_idx = self.channel.agentic_loop_start
-                messages[:loop_idx] = [
-                    {k: v for k, v in m.items() if k != "reasoning_content"}
-                    if "tool_calls" in m else m
-                    for m in messages[:loop_idx]
-                ]
+                # only strip when the marker points into the current message list.
+                if 0 <= loop_idx < len(messages):
+                    messages[:loop_idx] = [
+                        {k: v for k, v in m.items() if k != "reasoning_content"}
+                        for m in messages[:loop_idx]
+                    ]
 
             # Apply max_messages limit to history first
             if len(messages) > max_messages:
