@@ -874,8 +874,10 @@ CHAT_STORE = {
         this.editingMessageIndex = msg.index;
         this.editContent = this._extractEditText(msg);
         // files attached to the message (excluding the '' text slot) - the
-        // working set for this edit session; changes only commit on save
-        this.editAttached = (msg._metadata?.filenames || []).filter(f => f);
+        // working set for this edit session; changes only commit on save.
+        // existing files: { name } (block already in the message content)
+        // newly added files: { name, file } (raw File, converted on save)
+        this.editAttached = (msg._metadata?.filenames || []).filter(f => f).map(name => ({ name }));
         Alpine.store('ui').scrollToTurnIndex = turnIndex;
     },
 
@@ -886,7 +888,17 @@ CHAT_STORE = {
     },
 
     removeEditFile(fname) {
-        this.editAttached = this.editAttached.filter(f => f !== fname);
+        this.editAttached = this.editAttached.filter(e => e.name !== fname);
+    },
+
+    addEditFile(event) {
+        for (const file of event.target.files) {
+            // skip duplicates (same name already in the working set)
+            if (!this.editAttached.some(e => e.name === file.name)) {
+                this.editAttached.push({ name: file.name, file });
+            }
+        }
+        event.target.value = "";
     },
 
     async saveEdit(index) {
@@ -899,13 +911,14 @@ CHAT_STORE = {
         if (origMessage && Array.isArray(origMessage.content)) {
             // keep the file blocks, only replace the user's own text block,
             // and drop any blocks whose file was removed in this edit session
+            const attachedNames = this.editAttached.map(e => e.name);
             const blocks = [];
             const names = [];
             let replacedText = false;
 
             origMessage.content.forEach((block, blockIndex) => {
                 const fname = origMessage._metadata?.filenames?.[blockIndex];
-                if (fname && !this.editAttached.includes(fname)) { return; } // file removed by user
+                if (fname && !attachedNames.includes(fname)) { return; } // file removed by user
                 if (block.type === 'text' && !fname && !replacedText) {
                     replacedText = true;
                     blocks.push({ ...block, text: this.editContent });
@@ -925,11 +938,23 @@ CHAT_STORE = {
             filenames = names;
         }
 
+        // newly attached files (raw File objects) - converted to blocks by the backend
+        const newFiles = this.editAttached.filter(e => e.file);
+        let files = null;
+        if (newFiles.length > 0) {
+            const uploadStore = Alpine.store("upload");
+            files = await Promise.all(newFiles.map(async (e) => ({
+                name: e.name,
+                data: await uploadStore.readFileAsBase64(e.file)
+            })));
+        }
+
         await simpleSocketSend({
             "type": "message_edit",
             "index": index,
             "content": content,
-            "filenames": filenames
+            "filenames": filenames,
+            "files": files
         });
 
         this.editingMessageIndex = null;
