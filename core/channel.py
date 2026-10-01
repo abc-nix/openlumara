@@ -281,7 +281,7 @@ class Channel:
     # ---------------------
     # Content Processors
     # ---------------------
-    async def _process_multimodal(self, message: str = None, files: list = None) -> list:
+    async def _process_multimodal(self, message: str = None, files: list = None, metadata: dict = None) -> list:
         """
         Converts a list of file handler objects into an openAI API multimodal message object,
         allowing the AI to process images, audio, etc.
@@ -294,12 +294,19 @@ class Channel:
             "my_audio.mp3": (file handler object),
             and so on
         }
+
+        `metadata` is preserved when the message is already multimodal
+        (e.g. a stored message being re-sent by regenerate).
         """
         content_blocks = []
 
         # if the message was a list... this was already multimodal, so dont modify
         if isinstance(message, list):
-            return {"role": "user", "content": message}
+            result = {"role": "user", "content": message}
+            if metadata:
+                # copy so we don't mutate the caller's dict
+                result["_metadata"] = dict(metadata)
+            return result
 
         if not message and not files:
             # wtf why would you do that
@@ -475,7 +482,11 @@ class Channel:
         # that is not supposed to happen, and i need to find the code that does it
         # so, TODO: find the legacy code that calls channel.send()/send_stream() with dicts
         # but for now.. to avoid breaking everything, i'll convert
+        metadata = None
         if isinstance(user_message, dict):
+            # keep _metadata (e.g. attachment filenames) so it survives
+            # re-sending a stored message (regenerate)
+            metadata = user_message.get("_metadata")
             user_message = user_message.get("content", "")
 
         if isinstance(user_message, str):
@@ -516,7 +527,7 @@ class Channel:
                         user_message = usr_msg_result
 
         # apply multimodal content if applicable
-        user_message_processed = await self._process_multimodal(message=user_message, files=files)
+        user_message_processed = await self._process_multimodal(message=user_message, files=files, metadata=metadata)
 
         # and add the user's message to context
         add_success = await self.context.chat.messages.add(user_message_processed)
@@ -640,7 +651,9 @@ class Channel:
         match processed["type"]:
             case "cmd_response":
                 # immediately yield both the user message and the command response, so that they both display
-                yield {"type": "user_message", "content": message, "is_cmd": True}
+                # (message can be a dict when re-sent by regenerate - extract its content)
+                cmd_content = message.get("content", "") if isinstance(message, dict) else message
+                yield {"type": "user_message", "content": cmd_content, "is_cmd": True}
                 yield {"type": "content", "content": processed["content"], "is_cmd": True}
                 return
             case "blank":
@@ -652,7 +665,8 @@ class Channel:
                 return
             case "error":
                 # immediately yield the user message
-                yield {"type": "user_message", "content": message, "is_cmd": True}
+                err_content = message.get("content", "") if isinstance(message, dict) else message
+                yield {"type": "user_message", "content": err_content, "is_cmd": True}
                 yield await self.throw_stream_error(processed["content"])
                 return
 
