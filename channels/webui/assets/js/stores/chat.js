@@ -101,6 +101,7 @@ CHAT_STORE = {
     turnHistory: [],
     editingMessageIndex: null,
     editContent: '',
+    editAttached: [],
 
     user_input: '',
     last_user_input: '',
@@ -872,12 +873,20 @@ CHAT_STORE = {
         
         this.editingMessageIndex = msg.index;
         this.editContent = this._extractEditText(msg);
+        // files attached to the message (excluding the '' text slot) - the
+        // working set for this edit session; changes only commit on save
+        this.editAttached = (msg._metadata?.filenames || []).filter(f => f);
         Alpine.store('ui').scrollToTurnIndex = turnIndex;
     },
 
     async cancelEdit() {
         this.editingMessageIndex = null;
         this.editContent = '';
+        this.editAttached = [];
+    },
+
+    removeEditFile(fname) {
+        this.editAttached = this.editAttached.filter(f => f !== fname);
     },
 
     async saveEdit(index) {
@@ -888,13 +897,15 @@ CHAT_STORE = {
         let filenames = null;
 
         if (origMessage && Array.isArray(origMessage.content)) {
-            // keep the file blocks, only replace the user's own text block
+            // keep the file blocks, only replace the user's own text block,
+            // and drop any blocks whose file was removed in this edit session
             const blocks = [];
             const names = [];
             let replacedText = false;
 
             origMessage.content.forEach((block, blockIndex) => {
                 const fname = origMessage._metadata?.filenames?.[blockIndex];
+                if (fname && !this.editAttached.includes(fname)) { return; } // file removed by user
                 if (block.type === 'text' && !fname && !replacedText) {
                     replacedText = true;
                     blocks.push({ ...block, text: this.editContent });
@@ -923,6 +934,7 @@ CHAT_STORE = {
 
         this.editingMessageIndex = null;
         this.editContent = '';
+        this.editAttached = [];
     },
 
     /* ----------------------
