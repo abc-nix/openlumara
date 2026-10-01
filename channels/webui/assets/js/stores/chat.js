@@ -842,13 +842,36 @@ CHAT_STORE = {
         });
     },
 
+    _findMessage(index) {
+        for (const turn of this.turnHistory) {
+            const found = (turn.messages || []).find(m => m.index === index);
+            if (found) { return found; }
+        }
+        return null;
+    },
+
+    /*
+     * messages with attached files store their content as an array of blocks
+     * (text + image_url/input_audio/text blocks for files).
+     * the user's own editable text is the text block whose filename entry is
+     * empty (the '' slot in _metadata.filenames).
+     */
+    _extractEditText(msg) {
+        if (!Array.isArray(msg.content)) return msg.content;
+        const filenames = msg._metadata?.filenames || [];
+        const textBlock = msg.content.find(
+            (block, i) => block.type === 'text' && !filenames[i]
+        );
+        return textBlock?.text ?? '';
+    },
+
     async startEdit(turnIndex) {
         const turn = this.turnHistory[turnIndex];
         const msg = turn?.messages?.[turn.messages?.length - 1]; // last message in the turn
         if (!msg) { return; }
         
         this.editingMessageIndex = msg.index;
-        this.editContent = msg.content;
+        this.editContent = this._extractEditText(msg);
         Alpine.store('ui').scrollToTurnIndex = turnIndex;
     },
 
@@ -858,10 +881,44 @@ CHAT_STORE = {
     },
 
     async saveEdit(index) {
+        // find the original message so we can preserve its structure
+        const origMessage = this._findMessage(index);
+
+        let content = this.editContent;
+        let filenames = null;
+
+        if (origMessage && Array.isArray(origMessage.content)) {
+            // keep the file blocks, only replace the user's own text block
+            const blocks = [];
+            const names = [];
+            let replacedText = false;
+
+            origMessage.content.forEach((block, blockIndex) => {
+                const fname = origMessage._metadata?.filenames?.[blockIndex];
+                if (block.type === 'text' && !fname && !replacedText) {
+                    replacedText = true;
+                    blocks.push({ ...block, text: this.editContent });
+                } else {
+                    blocks.push(block);
+                }
+                names.push(fname || '');
+            });
+
+            // if the message had no text block but the user typed something, add one
+            if (!replacedText && this.editContent) {
+                blocks.unshift({ type: 'text', text: this.editContent });
+                names.unshift('');
+            }
+
+            content = blocks;
+            filenames = names;
+        }
+
         await simpleSocketSend({
             "type": "message_edit",
             "index": index,
-            "content": this.editContent
+            "content": content,
+            "filenames": filenames
         });
 
         this.editingMessageIndex = null;
