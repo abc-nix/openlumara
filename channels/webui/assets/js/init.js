@@ -31,8 +31,12 @@ document.addEventListener('alpine:init', async () => {
     // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-16)
     // x-text / x-html variants that fade newly streamed content in
     // (reasoning, tool call args, tool responses)
-    Alpine.directive('fade-text', Alpine.skipDuringClone(fadeTextRender));
-    Alpine.directive('fade-html', Alpine.skipDuringClone((el, d, c) => fadeTextRender(el, d, c, true)));
+    // NOTE: deliberately NOT wrapped in Alpine.skipDuringClone - unlike
+    // structural directives, render directives must run on EVERY mount
+    // path (x-for/x-if/lazy-mount remounts), or the text never paints and
+    // the bubble renders empty. matches Alpine's own x-text/x-html.
+    Alpine.directive('fade-text', fadeTextRender);
+    Alpine.directive('fade-html', (el, d, c) => fadeTextRender(el, d, c, true));
 
     // -- AI GENERATED CODE (Qwen3.8-Flash-Next) :: (2026-09-17)
     // toggles .boxed when an element's content overflows its max-height,
